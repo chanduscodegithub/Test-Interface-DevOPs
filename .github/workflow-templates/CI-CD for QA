@@ -1,0 +1,18 @@
+name: CI/CD for QA
+
+on:
+  push:
+    branches:
+      - release
+
+jobs:
+  build-and-upload:
+    uses: your-org/your-repo/.github/workflows/build-and-upload-template.yml@main
+    with:
+      environment: qa
+
+  deploy-to-qa:
+    needs: build-and-upload
+    uses: your-org/your-repo/.github/workflows/deploy-template.yml@main
+    with:
+      environment: qa
