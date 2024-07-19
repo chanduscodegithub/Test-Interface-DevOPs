@@ -1,0 +1,50 @@
+name: Deploy to Environment Template
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Deployment environment (dev, qa, etc.)'
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      client_id: ${{ secrets.ANYPOINTCLIENT_ID }}
+      client_secret: ${{ secrets.ANYPOINTCLIENT_SECRET }}
+      connected_app_clientid: ${{ secrets.connected_app_clientid }}
+      connected_app_clientsecret: ${{ secrets.connected_app_clientsecret }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Download artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: artifact
+
+      - name: Find and set environment variables
+        id: set-env-vars
+        run: |
+          artifactName=$(ls *.jar | head -1)
+          echo "artifact_name=$artifactName" >> $GITHUB_ENV
+          appName=$(mvn help:evaluate -Dexpression=project.name -q -DforceStdout)
+          echo "appName=$appName" >> $GITHUB_ENV
+
+      - name: Deploy to Environment
+        run: |
+          mvn mule:deploy -s .maven/settings.xml -DskipMunitTests -DappName="$appName-v1-${{ inputs.environment }}" \
+            -Dmule.env=${{ inputs.environment }} -Danypoint.client_secret=$client_secret -Ddecryption.key=${{ secrets.decryption_key }} \
+            -DworkerSize=0.1 -Dreplica=1 -DmuleVersion=4.7.1 -Ddefault.public.url=false \
+            -DpublicUrl.host=mw-mule-${{ inputs.environment }} -Denvironment=${{ inputs.environment }} \
+            -Dmule.artifact=$artifact_name -Danypoint.client_id=$client_id -DtargetName=non-prod-ps
