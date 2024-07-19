@@ -1,0 +1,18 @@
+name: CI/CD for Dev
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  build-and-upload:
+    uses: chanduscodegithub/Test-Interface-DevOPs/.github/workflows/build-and-upload-template.yml@main
+    with:
+      environment: dev
+
+  deploy-to-dev:
+    needs: build-and-upload
+    uses: chanduscodegithub/Test-Interface-DevOPs/.github/workflows/deploy-template.yml@main
+    with:
+      environment: dev
