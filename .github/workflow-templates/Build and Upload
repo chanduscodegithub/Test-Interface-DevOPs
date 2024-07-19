@@ -1,0 +1,74 @@
+name: Build and Upload Template
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Deployment environment (dev, qa, etc.)'
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Set up JDK
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: 8
+
+      - name: Build with Maven
+        env:
+          nexus_username: ${{ secrets.NEXUSUSERNAME }}
+          nexus_password: ${{ secrets.NEXUSPASSWORD }}
+          connected_app_clientid: ${{ secrets.connected_app_clientid }}
+          connected_app_clientsecret: ${{ secrets.connected_app_clientsecret }}
+          KEY: ${{ secrets.decryption_key }}
+        run: mvn -B package -s .maven/settings.xml -DskipMunitTests
+
+      - name: Stamp artifact file name with commit hash
+        id: stamp-artifact
+        run: |
+          artifactName=$(ls target/*.jar | head -1)
+          commitHash=$(git rev-parse --short "$GITHUB_SHA")
+          artifactNameWithHash=$(basename "$artifactName" .jar)-$commitHash.jar
+          mv "$artifactName" "$artifactNameWithHash"
+          echo "artifact_name=$artifactNameWithHash" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: artifact
+          path: target/*.jar
+
+  upload:
+    if: github.ref == 'refs/heads/develop'
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      client_id: ${{ secrets.ANYPOINTCLIENT_ID }}
+      client_secret: ${{ secrets.ANYPOINTCLIENT_SECRET }}
+      connected_app_clientid: ${{ secrets.connected_app_clientid }}
+      connected_app_clientsecret: ${{ secrets.connected_app_clientsecret }}
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: artifact
+
+      - name: Upload to Exchange
+        run: |
+          artifactName=$artifact_name
+          mvn deploy -s .maven/settings.xml -Dmule.artifact="$artifactName" -Dclient.id=$client_id -Dclient.secret=$client_secret
